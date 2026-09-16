@@ -220,6 +220,8 @@ Use GPT Repo MCP. Which repositories can you access?
 
 The default setup is read-mostly. Mutating tools are disabled by default and should only be enabled for trusted repositories.
 
+For a ChatGPT Pro read-only tool surface, set `GPT_REPO_READ_ONLY_SURFACE=1` before starting the MCP server. In this mode, write-capable tools are not registered and do not appear in `tools/list`.
+
 Enable them per repo in `config.local.json`:
 
 ```json
