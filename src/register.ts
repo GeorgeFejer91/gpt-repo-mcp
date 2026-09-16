@@ -6,6 +6,8 @@ import type { RuntimeContext } from "./runtime/context.js";
 
 export { SERVER_INSTRUCTIONS };
 
+const READ_ONLY_SURFACE_ENV = "GPT_REPO_READ_ONLY_SURFACE";
+
 export function createMcpServer(context: RuntimeContext): McpServer {
   const server = new McpServer(
     {
@@ -20,7 +22,11 @@ export function createMcpServer(context: RuntimeContext): McpServer {
     }
   );
 
-  for (const tool of toolRegistry) {
+  const tools = process.env[READ_ONLY_SURFACE_ENV] === "1"
+    ? toolRegistry.filter((tool) => tool.annotations.readOnlyHint === true)
+    : toolRegistry;
+
+  for (const tool of tools) {
     registerCatalogTool(server, context, tool);
   }
 

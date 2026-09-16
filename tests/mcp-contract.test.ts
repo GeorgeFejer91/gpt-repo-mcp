@@ -76,6 +76,34 @@ describe("MCP contract", () => {
     }
   });
 
+  test("GPT_REPO_READ_ONLY_SURFACE=1 exposes only read-only tools in tools/list", async () => {
+    const previous = process.env.GPT_REPO_READ_ONLY_SURFACE;
+    process.env.GPT_REPO_READ_ONLY_SURFACE = "1";
+    let close: (() => Promise<void>) | undefined;
+    try {
+      const fixture = await connectFixtureServer();
+      close = fixture.close;
+      const listed = await fixture.client.listTools();
+      const listedNames = listed.tools.map((tool) => tool.name);
+
+      expect(listedNames).toEqual(
+        toolCatalog
+          .filter((tool) => tool.annotations.readOnlyHint === true)
+          .map((tool) => tool.name)
+      );
+      expect(listedNames).not.toEqual(toolCatalog.map((tool) => tool.name));
+      for (const tool of listed.tools) expect(tool.annotations?.readOnlyHint).toBe(true);
+      for (const toolName of MUTATING_TOOL_NAMES) expect(listedNames).not.toContain(toolName);
+    } finally {
+      await close?.();
+      if (previous === undefined) {
+        delete process.env.GPT_REPO_READ_ONLY_SURFACE;
+      } else {
+        process.env.GPT_REPO_READ_ONLY_SURFACE = previous;
+      }
+    }
+  });
+
   test("tools/list exposed surface stays stable", async () => {
     const { client, close } = await connectFixtureServer();
     try {
