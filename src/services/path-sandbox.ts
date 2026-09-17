@@ -1,5 +1,5 @@
 import { lstat, realpath } from "node:fs/promises";
-import { join, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
 import { posix } from "node:path";
 import { isDelegationControlArtifact } from "../policies/delegation-control-artifacts.js";
 import { RepoReaderError } from "../runtime/errors.js";
@@ -67,7 +67,18 @@ export function validateRepoPath(repoPath: string): string {
   if (repoPath.length === 0) {
     return ".";
   }
-  if (repoPath.startsWith("/") || /^[A-Za-z]:[\\/]/.test(repoPath)) {
+  // `win32.isAbsolute` is checked in addition to the platform's own, so a POSIX
+  // host still rejects "C:\..." and "\\server\share". The bare drive-letter
+  // regex catches the drive-*relative* form "C:file", which win32.isAbsolute
+  // reports as false yet Windows resolves against that drive's current
+  // directory - outside the repository. NUL is rejected because the path would
+  // be truncated at the first NUL by the underlying syscall.
+  if (
+    repoPath.includes("\0") ||
+    isAbsolute(repoPath) ||
+    win32.isAbsolute(repoPath) ||
+    /^[A-Za-z]:/.test(repoPath)
+  ) {
     throw new RepoReaderError("ABSOLUTE_PATH_REJECTED", `Absolute paths are not allowed: ${repoPath}`);
   }
 
@@ -78,7 +89,13 @@ export function validateRepoPath(repoPath: string): string {
   return normalized === "." ? "." : normalized.replace(/^\.\//, "");
 }
 
+/// Containment test. `relative` returns an ABSOLUTE path when the two sides
+/// share no common root, which on Windows is any cross-drive pair: C:\repo
+/// against D:\elsewhere yields "D:\elsewhere", a string containing no ".." at
+/// all. A check that only looked for ".." therefore reported a different drive
+/// as contained. Comparing to ".." exactly rather than with startsWith also
+/// keeps a legitimate file named "..config" from being read as traversal.
 function isWithin(rootPath: string, targetPath: string): boolean {
   const rel = relative(resolve(rootPath), resolve(targetPath));
-  return rel === "" || (!rel.startsWith("..") && !rel.includes(`..${sep}`));
+  return rel === "" || (!isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`));
 }
