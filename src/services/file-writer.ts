@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, realpath } from "node:fs/promises";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { posix } from "node:path";
 import type { WriteFileActionSchema, WriteFileInput, WriteFileResult, WriteGroupedEditChange } from "../contracts/write.contract.js";
 import { RepoReaderError } from "../runtime/errors.js";
@@ -191,7 +191,7 @@ export class FileWriter {
       const find = requireFind(input, action);
       const replace = requireReplace(input, action);
       assertFindAppearsExactlyOnce(oldText, find, target.repoPath);
-      nextText = oldText.replace(find, replace);
+      nextText = oldText.replace(find, () => replace);
     } else if (action === "insert_before") {
       const find = requireFind(input, action);
       assertFindAppearsExactlyOnce(oldText, find, target.repoPath);
@@ -350,7 +350,7 @@ function applyGroupedEdits(text: string, edits: WriteGroupedEditChange["edits"],
     const find = requireGroupedFind(edit, repoPath);
     assertFindAppearsExactlyOnce(nextText, find, repoPath);
     if (edit.type === "replace") {
-      nextText = nextText.replace(find, requireGroupedReplace(edit));
+      nextText = nextText.replace(find, () => requireGroupedReplace(edit));
     } else if (edit.type === "insert_before") {
       const index = nextText.indexOf(find);
       nextText = nextText.slice(0, index) + requireGroupedContent(edit) + nextText.slice(index);
@@ -416,7 +416,13 @@ async function assertWithinRoot(root: string, target: string): Promise<void> {
     realpath(target)
   ]);
   const rel = relative(resolve(rootReal), resolve(targetReal));
-  if (rel !== "" && (rel.startsWith("..") || rel.includes(`..${sep}`))) {
+  // `relative` returns an ABSOLUTE path when the two sides share no common root
+  // - on Windows that is any cross-drive pair, e.g. C:\repo vs D:\elsewhere.
+  // Such a result contains no ".." at all, so a check that only looks for ".."
+  // treated an entirely different drive as contained. Comparing against ".."
+  // exactly, rather than with startsWith, also stops a legitimate file named
+  // "..config" from being mistaken for traversal.
+  if (isAbsolute(rel) || rel === ".." || rel.startsWith(`..${sep}`)) {
     throw new RepoReaderError("SYMLINK_ESCAPE_REJECTED", `Path escapes approved repository: ${dirname(target)}`);
   }
 }
